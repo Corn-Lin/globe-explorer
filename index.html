@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.loli.net">
+<link rel="preconnect" href="https://gstatic.loli.net" crossorigin>
+<link href="https://fonts.loli.net/css2?family=Noto+Serif+SC:wght@400;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
 <title>🌍 地球景点探索</title>
 <style>
 :root {
@@ -164,7 +164,7 @@ body{background:var(--bg);
 <input type="file" accept="image/*" id="bgInput" style="display:none">
 
 <script type="importmap">
-{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
 </script>
 
 <script type="module">
@@ -887,16 +887,13 @@ function loadTex(urls) {
 // which is why the previous solarsystemscope/NASA URLs were failing silently
 // and falling back to the crude procedural texture.
 const earthTexP = loadTex([
-  'https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg',
-  'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg'
+  'https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg'
 ]).then(t => t || createFallbackTex());
 const earthBumpP = loadTex([
-  'https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png',
-  'https://unpkg.com/three-globe/example/img/earth-topology.png'
+  'https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png'
 ]);
 const earthSpecP = loadTex([
-  'https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-water.png',
-  'https://unpkg.com/three-globe/example/img/earth-water.png'
+  'https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-water.png'
 ]);
 
 async function createGlobe() {
