@@ -680,9 +680,15 @@ function loadState() {
 }
 function saveState() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) { showToast('存储空间不足'); } }
 
-function isVisited(id) { return !!state.visited[id]; }
+function isVisited(id) { return state.visited[id] > 0; }
 function toggleVisited(id) {
-  if(state.visited[id]) delete state.visited[id]; else state.visited[id] = Date.now();
+  // 用正数=已标记(timestamp), 负数=明确取消(-timestamp)
+  // 这样云端同步时可以区分"取消"和"从未有过"
+  if (state.visited[id] > 0) {
+    state.visited[id] = -Date.now(); // 标记为已取消
+  } else {
+    state.visited[id] = Date.now(); // 标记为已探索
+  }
   saveState();
 }
 function getAttractions(id) { return state.attractions[id] || []; }
@@ -2324,7 +2330,8 @@ function loadFromCloud() {
 }
 
 function mergeStates(local, cloud) {
-  // Simple merge: take keys from both, for timestamps take the newer one (higher Date.now() value)
+  // 关键修复：visited 用正数=已标记, 负数=已取消, 不存在=从未有过
+  // 合并规则：取 timestamp 绝对值更大的那个（更新的操作），正>负
   var result = {};
   ['visited', 'photos', 'attractions'].forEach(function(key) {
     result[key] = {};
@@ -2334,10 +2341,11 @@ function mergeStates(local, cloud) {
     Object.keys(ck).forEach(function(k){ allKeys[k] = true; });
     Object.keys(allKeys).forEach(function(k) {
       if (key === 'visited') {
-        // Keep the newer timestamp
+        // 谁的操作时间更近谁赢（比较绝对值）; 正数=标记, 负数=取消
         var lt = typeof lk[k] === 'number' ? lk[k] : 0;
         var ct = typeof ck[k] === 'number' ? ck[k] : 0;
-        result[key][k] = Math.max(lt, ct);
+        // 取绝对值更大的（更新的操作），保留其正负
+        result[key][k] = (Math.abs(lt) >= Math.abs(ct)) ? lt : ct;
       } else {
         // photos/attractions: union of arrays, dedup by content
         var la = Array.isArray(lk[k]) ? lk[k] : [];
@@ -2373,8 +2381,13 @@ function countUserItems() {
 }
 
 function buildCloudData() {
+  // 清理：只保留正值（已标记），过滤掉负值（已取消的）和 undefined
+  var cleanVisited = {};
+  Object.keys(state.visited || {}).forEach(function(k) {
+    if (state.visited[k] > 0) cleanVisited[k] = state.visited[k];
+  });
   return {
-    visited: state.visited || {},
+    visited: cleanVisited,
     photos: state.photos || {},
     attractions: state.attractions || {},
     customCities: customCities.map(function(c){ return {i:c.i,n:c.n,c:c.c,a:c.a,o:c.o,t:c.t}; }),
@@ -2390,21 +2403,15 @@ function saveToCloud(data) {
 function queueCloudSync() {
   if (_pendingSync) return;
   _pendingSync = true;
-  clearTimeout(_pendingSync._timer);
-  _pendingSync._timer = setTimeout(function() {
+  // 取消标记必须立即同步，不能等 debounce，否则用户关掉页面同步都没发出去
+  saveToCloud(buildCloudData()).then(function() {
     _pendingSync = false;
-    if (_syncing || !_user) return;
-    _syncing = true;
-    setSyncStatus('syncing', '同步中…');
-    saveToCloud(buildCloudData()).then(function() {
-      _syncing = false;
-      setSyncStatus('synced', '已同步');
-    }).catch(function(err) {
-      _syncing = false;
-      console.error('Sync failed:', err);
-      setSyncStatus('error', '同步失败');
-    });
-  }, 1500); // debounce 1.5s
+    setSyncStatus('synced', '已同步');
+  }).catch(function(err) {
+    _pendingSync = false;
+    console.error('Sync failed:', err);
+    setSyncStatus('error', '同步失败');
+  });
 }
 
 function setSyncStatus(status, label) {
