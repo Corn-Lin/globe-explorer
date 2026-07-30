@@ -685,8 +685,9 @@ function persistCustomCities() { try { localStorage.setItem(STORAGE_KEY+'_custom
 
 function mergeStates(localObj, cloudObj) {
   var merged = {};
-  if (localObj.visited) for (var k in localObj.visited) merged[k] = localObj.visited[k];
+  // 云端先写入，再用本地覆盖（本地优先，避免取消状态被云端冲掉）
   if (cloudObj.visited) for (var k in cloudObj.visited) merged[k] = cloudObj.visited[k];
+  if (localObj.visited) for (var k in localObj.visited) merged[k] = localObj.visited[k];
   return { visited: merged };
 }
 
@@ -2566,7 +2567,12 @@ function doCloudSync() {
 
 function buildCloudData() {
   return {
-    visited: Object.keys(state.visited||{}).filter(function(k){return state.visited[k];}),
+    visited: Object.keys(state.visited||{}).filter(function(k){
+      var v = state.visited[k];
+      if (typeof v === 'number' && v > 0) return true;  // positive = visited
+      if (typeof v === 'string') return true;  // wishlist/favorite etc.
+      return false;  // negative (canceled) or other → don't upload
+    }),
     wishlist: Object.keys(state.visited||{}).filter(function(k){return state.visited[k]==='wishlist';}),
     favorite: Object.keys(state.visited||{}).filter(function(k){return state.visited[k]==='favorite';}),
     customCities: customCities,
