@@ -1253,7 +1253,7 @@ async function createMarkers() {
 
     const label=mkCityLabel(city.n);
     label.position.copy(pos.clone().normalize().multiplyScalar(GLOBE_RADIUS+0.15));
-    label.userData={cityId:city.i,tier:city.t||3};
+    label.userData={cityId:city.i,tier:city.t||3,_originalName:city.n,_marker:marker};
     markersGroup.add(label);
     cityLabelObjects.push(label);
   }
@@ -1946,7 +1946,7 @@ document.getElementById('addCityBtn').addEventListener('click', function() {
     markerObjects.push(marker);
     var label = mkCityLabel(name);
     label.position.copy(pos.clone().normalize().multiplyScalar(GLOBE_RADIUS + 0.15));
-    label.userData = { cityId: id, tier: 3 };
+    label.userData = { cityId: id, tier: 3, _originalName: name, _marker: marker };
     markersGroup.add(label);
     cityLabelObjects.push(label);
     renderCityList(document.getElementById('searchInput').value);
@@ -2129,19 +2129,107 @@ function animate(){
 
   _profStart('labels');
   if(_doUpdate){
-    // ===== 城市标签（复用 Vector3，避免每帧 new + clone）=====
+    // ===== 城市标签（两遍扫描：先排序再放置，杜绝闪烁）=====
+    var cityGridCellSize = 50;
+    var cityGrid = {};
+    // 第一遍：收集候选标签，投影到屏幕，计算全尺寸边界
+    var candidates = [];
     for(var i=0;i<cityLabelObjects.length;i++){
       var l=cityLabelObjects[i];
       if(l.userData._filterHidden){ l.visible = false; continue; }
       var tier = l.userData.tier || 3;
       var labelCityId = l.userData.cityId;
       var labelIsVisited = labelCityId ? isVisited(labelCityId) : false;
-      // Visited labels always stay visible; unvisited ones follow LOD
       if(!labelIsVisited && tier === 2 && cameraDistance >= 13) { l.visible = false; continue; }
       if(!labelIsVisited && tier === 3 && cameraDistance >= 11) { l.visible = false; continue; }
       l.getWorldPosition(_wp);
       _wpNorm.copy(_wp).normalize();
-      l.visible = _wpNorm.dot(_camNorm) > -0.1;
+      var facing = _wpNorm.dot(_camNorm) > -0.1;
+      if(!facing){l.visible=false;continue;}
+      l.visible=true;
+      _proj.copy(_wp).project(camera);
+      var sx=(_proj.x*0.5+0.5)*window.innerWidth;
+      var sy=(1-(_proj.y*0.5+0.5))*window.innerHeight;
+      // 用全尺寸文本估算边界
+      var fullName = l.userData._originalName || l.element.textContent;
+      var estW = fullName.length * 12 * 0.6 + 6;
+      var estH = 16;
+      candidates.push({
+        label: l,
+        sx: sx, sy: sy,
+        rx1: sx-estW/2, ry1: sy-estH/2, rx2: sx+estW/2, ry2: sy+estH/2,
+        tier: tier,
+        visited: labelIsVisited
+      });
+    }
+    // 排序：visited 优先 > tier 数字小优先（层级高）
+    candidates.sort(function(a,b){
+      if(a.visited !== b.visited) return a.visited ? -1 : 1;
+      return a.tier - b.tier;
+    });
+
+    // 第二遍：按优先级依次放置，重叠者缩小为点，不参与占用
+    for(var ci=0; ci<candidates.length; ci++){
+      var cand = candidates[ci];
+      var l = cand.label;
+      var rx1=cand.rx1, ry1=cand.ry1, rx2=cand.rx2, ry2=cand.ry2;
+      var overlap=false;
+      var gx1 = Math.floor(rx1 / cityGridCellSize), gx2 = Math.floor(rx2 / cityGridCellSize);
+      var gy1 = Math.floor(ry1 / cityGridCellSize), gy2 = Math.floor(ry2 / cityGridCellSize);
+      for(var gx = gx1; gx <= gx2 && !overlap; gx++) {
+        for(var gy = gy1; gy <= gy2 && !overlap; gy++) {
+          var cell = cityGrid[gx + ":" + gy];
+          if(!cell) continue;
+          for(var ri = 0; ri < cell.length; ri++) {
+            var r = cell[ri];
+            if(rx1 < r.x2 + 2 && rx2 > r.x1 - 2 && ry1 < r.y2 + 2 && ry2 > r.y1 - 2) { overlap = true; break; }
+          }
+        }
+      }
+
+      if(overlap){
+        // 缩小为小圆点，不占 grid 空间（后续标签不会再受它影响）
+        if(!l.userData._isShrunken){
+          l.userData._isShrunken = true;
+          l.element.textContent = '•';
+          l.element.style.fontSize = '7px';
+          l.element.style.fontWeight = '400';
+          l.element.style.opacity = '0.55';
+        }
+        if(l.userData._marker){
+          l.userData._marker.scale.setScalar(0.35);
+        }
+        // 只占一个小点的空间，避免和其他小点完全重叠
+        var dotR = {x1:cand.sx-4,y1:cand.sy-4,x2:cand.sx+4,y2:cand.sy+4};
+        for(var gx = Math.floor(dotR.x1/cityGridCellSize); gx <= Math.floor(dotR.x2/cityGridCellSize); gx++) {
+          for(var gy = Math.floor(dotR.y1/cityGridCellSize); gy <= Math.floor(dotR.y2/cityGridCellSize); gy++) {
+            var key = gx + ":" + gy;
+            if(!cityGrid[key]) cityGrid[key] = [];
+            cityGrid[key].push(dotR);
+          }
+        }
+      } else {
+        // 正常显示全尺寸
+        if(l.userData._isShrunken){
+          l.userData._isShrunken = false;
+          l.element.textContent = l.userData._originalName || '';
+          l.element.style.fontSize = '12px';
+          l.element.style.fontWeight = '600';
+          l.element.style.opacity = '1';
+        }
+        if(l.userData._marker){
+          l.userData._marker.scale.setScalar(1.0);
+        }
+        // 记录全尺寸占用空间
+        var rect = {x1:rx1,y1:ry1,x2:rx2,y2:ry2};
+        for(var gx = gx1; gx <= gx2; gx++) {
+          for(var gy = gy1; gy <= gy2; gy++) {
+            var key = gx + ":" + gy;
+            if(!cityGrid[key]) cityGrid[key] = [];
+            cityGrid[key].push(rect);
+          }
+        }
+      }
     }
 
     // ===== 国家标签（空间网格碰撞检测）=====
